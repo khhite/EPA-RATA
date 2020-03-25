@@ -8,7 +8,12 @@ The following RATA tests will be included in this analysis:
 - CO2 and O2 (percent)
 - Moisture (%H2O)
 
-Files in this repository include the R script (RATA.R), R Notebook (RataAnalysis.RMD), Dashboard script (RATADashboard.R) and it's helper file (helper.R). Raw data is found in the rawdata directory.
+Files in this repository include:  
 
+- R script (RATA.R)
+- R Notebook (RataAnalysis.RMD)
+- Shiny Dashboard script (RATADashboard.R) and it's helper file (helper.R)
+
+Raw data is found in the rawdata directory.
 
 The Shiny App is available at https://khhite.shinyapps.io/RATA/
