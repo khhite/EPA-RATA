@@ -1,0 +1,13 @@
+name: RATA
+title: RATA
+username:
+account: khhite
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1883326
+bundleId: 2840410
+url: https://khhite.shinyapps.io/RATA/
+when: 1583009480.00388
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: logs.txt|RATA.R|RataAnalysis.log|RataAnalysis.nb.html|RataAnalysis.pdf|RataAnalysis.Rmd|RATADashboard_orig.R|README.md

@@ -1,0 +1,13 @@
+name: EPA-RATA
+title: EPA-RATA
+username:
+account: khhite
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1883298
+bundleId: 2840389
+url: https://khhite.shinyapps.io/EPA-RATA/
+when: 1583008345.58147
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: RATA.R|RataAnalysis.log|RataAnalysis.nb.html|RataAnalysis.pdf|RataAnalysis.Rmd|RATADashboard_orig.R|README.md
