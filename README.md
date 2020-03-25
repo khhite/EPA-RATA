@@ -7,3 +7,5 @@ The following RATA tests will be included in this analysis:
 - NOX rate (lb/mmBtu)
 - CO2 and O2 (percent)
 - Moisture (%H2O)
+
+The Shiny App is available at https://khhite.shinyapps.io/RATA/
