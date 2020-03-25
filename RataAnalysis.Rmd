@@ -1,0 +1,741 @@
+---
+title: "RATA Analyses"
+output:
+  pdf_document:
+    df_print: kable
+    toc: yes
+  html_notebook:
+    theme: readable
+    toc: yes
+    # css: styles.css   #uncomment to use style sheet
+    out.width: '100%'
+  html_document:
+    toc: yes
+    # css: styles.css   #uncomment to use style sheet
+    out.width: '100%'
+---
+
+# Summary
+The following is an investigation of the historic use of alternate performance specifications (APS) for Relative Accuracy Test Audits (RATA) required under 40 CFR part 75, a statistical calculation of alternate performance specifications, a determination of revised alternate performance specifications, and an evaluation of the effect of the proposed alternate performance specifications on the overall pass/fail rate and frequency (annual/semi-annual) qualification of the historic RATA results.
+
+The following RATA tests will be included in this analysis:
+
+- SO2 and NOX concentration (ppm)
+- NOX rate (lb/mmBtu)
+- CO2 and O2 (percent)
+- Moisture (%H2O)
+
+
+The following provided data sets include data for the years 2014-2018:
+
+- SO2, NOX concentration RATA (SO2RATA.csv and NOXRATA.csv)
+- NOX Rate RATA (NOXRRATA.csv)
+- CO2 and O2 RATA (CO2RATA.csv and O2RATA.csv)
+- Moisture RATA (H2OMRATA.csv and H2ORATA.csv)
+
+**To run this R Notebook, include the above files in the same directory as the R Notebook.**  
+R requirements:  
+R version 3.6.0  
+
+
+The following packages were used in this analysis:  
+*ggpubr_0.2.1, magrittr_1.5. kableExtra_1.1.0, DescTools_0.99.28, tinytex_0.14. knitr_1.23, data.table_1.12.2, forcats_0.4.0, stringr_1.4.0, dplyr_0.8.1, purr_0.3.2, readr_1.3.1, tidyr_0.8.3, tibble_2.1.3, ggplot2_3.2.0, tidyverse_1.2.1*    
+
+
+```{r warning=FALSE, include=FALSE}
+# load necessary packages
+packages <- c("tidyverse", "data.table", "tidyr", "knitr", "tinytex", "DescTools", "kableExtra", "ggpubr")
+missing.packages <- setdiff(packages,installed.packages()[,"Package"])
+if(length(missing.packages)) install.packages(missing.packages)
+for(pkg in packages) {
+do.call("library",list(pkg))
+}
+```
+
+```{r include=FALSE}
+# set notebook options
+options(scipen = 999)         # disable scientific notation
+options(tibble.width = Inf)   # output width of tibbles
+```
+
+```{r }
+# variables used in the analysis, can be changed as desired
+ra_4qtr <- 7.5                # relative accuracy for annual reporting  
+ra_2qtr <- 10                 # relative accuracy for semi-annual reporting
+so2nox_4qtr_diff <- 12        # SO2 & NOx ppm APS value for annual reporting
+so2nox_2qtr_diff <- 15        # SO2 & NOx ppm APS value for semi-annual reporting
+noxr_4qtr_diff <- 0.015       # NOx rate lb/mmBtu APS value for annual reporting
+noxr_2qtr_diff <- 0.200       # NOx rate lb/mmBtu APS value for semi-annual reporting
+co2o2_4qtr_diff <- 0.7        # CO2 or O2 % APS value for annual reporting
+co2o2_2qtr_diff <- 1.0        # CO2 or O2 % APS value for semi-annual reporting
+h2o_4qtr_diff <- 1.0          # moisture (H2O) % APS value for annual reporting
+h2o_2qtr_diff <- 1.5          # moisture (H2O) % APS value for semi-annual reporting
+annual_aps <- .75             # percentage of proposed semi-annual APS which will determine the annual APS
+```
+
+
+```{r include=FALSE}
+# The round function in R rounds to the nearest even number if the decimal value is .5, so we may not get correct values. 
+# The following round function will be used instead.
+# inputs:
+# - x = value to be rounded
+# - n = how many places to round
+round2 <- function(x, n) (trunc((abs(x) * 10 ^ n) + 0.5) / 10 ^ n) * sign(x)
+```
+
+```{r include=FALSE}
+# create function to read in files with appropriate error and warning messages
+readfile <- function(file, ...) {
+  tryCatch(read_csv(file, ...),
+    error = function(e) message("File not found. Make sure file resides in directory with Rmd file.", file),
+    warning = function(w) message("File not found. Make sure file resides in directory with Rmd file.", file)
+  )
+}   
+```
+
+```{r include=FALSE}
+so2rata <- readfile("rawdata/SO2RATA.csv")
+noxrata <- readfile("rawdata/NOXRATA.csv")
+noxrrata <- readfile("rawdata/NOXRRATA.csv")
+co2rata <- readfile("rawdata/CO2RATA.csv")
+o2rata <- readfile("rawdata/O2RATA.csv")
+h2omrata <- readfile("rawdata/H2OMRATA.csv")
+h2orata <- readfile("rawdata/H2ORATA.csv")
+```
+
+```{r}
+# function to check for missing values in Relative.Accuracy and Mean.Diff columns
+checkmissingvals <- function(df) {
+  df %>% summarise(missing_ra = sum(is.na(Relative.Accuracy)),
+                   missing_mid = sum(is.na(Mean.Diff)))
+}
+```
+
+```{r}
+# check for missing values in so2rata
+checkmissingvals(so2rata)
+```
+
+```{r}
+# check for missing values in noxrata
+checkmissingvals(noxrata)
+```
+
+```{r}
+# check for missing values in noxrrata
+# check for missing values in noxrata
+checkmissingvals(noxrrata)
+```
+
+```{r}
+# check for missing values in co2rata
+checkmissingvals(co2rata)
+```
+
+```{r}
+# check for missing values in o2rata
+checkmissingvals(o2rata)
+```
+
+```{r}
+# check for missing values in h2orata
+checkmissingvals(h2orata)
+```
+
+
+
+# Analysis 
+The historical data (2014-2018) will be used to determine unit status for meeting main performance requirements and alternate performance specification (APS) criteria. A statistical analysis will be performed on the units that pass to determine proposed annual and semi-annual APS. The initial data will then be used to test the proposed annual and semi-annual APS.
+
+
+## Filter and combine files to prepare for analysis ##  
+### SO2 and NOx (ppm) ###
+Combine SO2 and NOX concentration RATA data (SO2RATA.csv and NOXRATA.csv).  
+Only include RATA with a reference mean equal to or less than 250 ppm.
+```{r }
+# combine SO2 and NOX concentration RATA data
+so2nox <- rbind(so2rata, noxrata)
+
+# filter RATAs
+so2nox_filtered <- so2nox %>% 
+  filter(Mean.RATA.Reference <= 250)
+```
+
+
+### NOx Rate ###
+From NOXRRATA.csv, only include RATAs with a reference mean equal to or less than 0.200 lb/mmBtu.
+```{r include=FALSE}
+# filter RATAs
+noxrrata_filtered <- noxrrata %>% 
+  filter(Mean.RATA.Reference <= 0.200)
+```
+
+
+### CO2 and O2 (%) ###
+Combine CO2 and O2 RATA data (CO2RATA.csv and O2RATA.csv).
+```{r include=FALSE}
+# combine CO2 and O2 files and filter RATAs
+co2o2 <- rbind(co2rata, o2rata)
+```
+
+### Moisture RATA (%H2O) ###
+Combine H2O and H2OM data (H2ORATA.csv and H2OMRATA.csv).
+```{r include=FALSE}
+# combine H2O and H2OM files and filter RATAs
+h2omh2o <- rbind(h2omrata, h2orata)
+```
+
+
+**-------------------------------------------------- FUNCTIONS --------------------------------------------------**
+```{r include=FALSE}
+theme_custom <- function (base_size = 10, base_family = "sans") {
+  half_line <- base_size/2
+  theme_light(base_size = base_size, base_family = base_family) %+replace%           # basic theme to start
+  theme(
+    line = element_line(colour = "black", 
+                        size = 0.5, 
+                        linetype = 1, 
+                        lineend = "butt"), 
+    rect = element_rect(fill = "white",                                              # background
+                        colour = "black", 
+                        size = 0.5, 
+                        linetype = 1),
+    text = element_text(family = base_family,                                        # text
+                        face = "plain",
+                        colour = "black", 
+                        size = base_size,
+                        lineheight = 0.9,  
+                        hjust = 0.5,
+                        vjust = 0.5, 
+                        angle = 0, 
+                        margin = margin(), 
+                        debug = FALSE), 
+    
+    axis.line = element_blank(),                                                     # chart border
+    axis.text = element_text(size = rel(0.8), colour = "grey20"),                    # axis text
+    axis.text.x = element_text(margin = margin(t = 0.8*half_line/2), vjust = 1),     # axis x label text
+    axis.text.y = element_text(margin = margin(r = 0.8*half_line/2), hjust = 1),     # axis y label text
+    axis.ticks = element_line(colour = "grey20"),                                    # axis tick marks
+    axis.ticks.length = unit(half_line/2, "pt"),                                     # axis tick mark length
+    axis.title.x = element_text(size = rel(1),  face = "bold",                       # styles the x axis title
+                                margin = margin(t = 10, r = 0, b = 0, l = 0)),
+    axis.title.y = element_text(size = rel(1),  face = "bold", angle = 90,           # styles the y axis title
+                                margin = margin(t = 0, r = 15, b = 0, l = 0)),
+    
+    legend.background = element_rect(fill = "grey92", colour = NA ),                 # legend background and border
+    legend.spacing.x = unit(0.2, 'cm'),                                              # category spacing
+    legend.key = element_rect(fill = "grey95", colour = "grey85"),                   # category background and border
+    legend.key.size = unit(1.2, "lines"),                                            # category item size
+    legend.key.height = NULL,                                                        # category item height
+    legend.key.width = NULL,                                                         # category item width
+    legend.text = element_text(size = rel(0.8)),                                     # legend category item text size
+    legend.text.align = NULL,
+    legend.title = element_text(hjust = 0), 
+    legend.title.align = .5,                                                         # alignment of legend title (0-1 is left-right)
+    legend.position = "bottom",                                                      # sets the location of the legend relative to the grid
+    legend.direction = NULL,
+    legend.justification = "center",                                                 # aligns the legend
+    legend.box = NULL, 
+    
+    panel.background = element_rect(fill = "grey92", colour = NA),                   # sets the chart panel background
+    panel.border = element_blank(),                                                  # sets the chart panel border
+    panel.grid.major = element_line(colour = "white"),                               # sets the chart grid line
+    panel.grid.minor = element_line(colour = "white", size = 0.25), 
+    #panel.margin = unit(half_line, "pt"), 
+    panel.margin.y = NULL, 
+    panel.margin.x = NULL,
+    panel.ontop = FALSE, 
+    
+    strip.background = element_rect(fill = "grey85", colour = NA),
+    strip.text = element_text(colour = "grey10", size = rel(0.8)),
+    strip.text.x = element_text(margin = margin(t = half_line, b = half_line)), 
+    strip.text.y = element_text(angle = -90, 
+                                margin = margin(l = half_line, r = half_line)),
+    strip.switch.pad.grid = unit(0.1, "cm"),
+    strip.switch.pad.wrap = unit(0.1, "cm"), 
+    
+    plot.background = element_rect(colour = "white"),                               # sets the figure background color
+    plot.title = element_text(size = rel(1.2), face = "bold",                       # styles the chart title
+                              hjust = 0.5, vjust = 2.5,
+                              margin = margin(b = half_line * 1.2)),
+    plot.margin = margin(half_line, half_line, half_line, half_line),
+
+    complete = TRUE)
+}
+```
+
+```{r }
+# function to determine historical test results
+# case_when is evaluated in order of statements
+# required function inputs:  
+# - df = filtered dataframe  
+# - ra_4qtr - relative accuracy for annual evaluation
+# - ra_2qtr - relative accuracy for semi-annual evaluation
+# - diff_4qtr - mean difference between CEM and reference value for annual evaluation
+# - diff_2qtr - mean difference between CEM and reference value for semi-annual evaluation
+# output: a new dataframe with a column for testresults
+
+testresults <- function(df, ra_4qtr, ra_2qtr, diff_4qtr, diff_2qtr) {
+  df %>%
+  mutate(testresult = case_when(
+    Relative.Accuracy <= ra_4qtr ~ "PASS_4QTRS",
+    Relative.Accuracy > ra_4qtr & between(Mean.Diff, -diff_4qtr, diff_4qtr) ~ "PASSAPS_4QTRS",
+    Relative.Accuracy > ra_4qtr & Relative.Accuracy <= ra_2qtr ~ "PASS_2QTRS",
+    Relative.Accuracy > ra_2qtr & between(Mean.Diff, -diff_2qtr, diff_2qtr) ~ "PASSAPS_2QTRS",
+    TRUE ~ "FAILED"
+    )
+  )  
+  
+}
+```
+
+
+
+```{r }
+# function to get statistics for RATA mean difference
+# required function inputs:  
+# - x = vector of values 
+# output: statistical values for supplied vector
+getstats <- function(x) { 
+  stats_table <- data.table(
+    mean = mean(x),
+    se = MeanSE(x),
+    median = median(x),
+    mode = paste(Mode(x), collapse=", "),
+    sd = sd(x),
+    variance = var(x),
+    kurtosis = Kurt(x),
+    skewness = Skew(x),
+    range = Range(x),
+    min = min(x),
+    max = max(x),
+    sum = sum(x),
+    count = length(x),
+    sd1_low = mean(x) - sd(x),
+    sd1_high = mean(x) + sd(x),
+    sd1_pct = length(which(x >= (mean(x) - sd(x)) & 
+                             x <= (mean(x) + sd(x)))) / length(x) * 100,
+    sd2_low = mean(x) - (2*sd(x)),
+    sd2_high = mean(x) + (2*sd(x)),
+    sd2_pct = length(which(x >= (mean(x) - (2*sd(x))) & 
+                             x <= (mean(x) + (2*sd(x))))) / length(x) * 100,
+    sd3_low = mean(x) - (3*sd(x)),
+    sd3_high = mean(x) + (3*sd(x)),
+    sd3_pct = length(which(x >= (mean(x) - (3*sd(x))) & 
+                             x <= (mean(x) + (3*sd(x))))) / length(x) * 100
+    ) 
+  
+}
+```
+
+```{r}
+# function to display statistics 
+# required function inputs:  
+# - df = dataframe of values for which you want statistics  
+# output: statistical values for supplied variable displayed in a table
+displaystats <- function(df) {
+  df %>% mutate(sd1_range = str_c("(",sd1_low,", ",sd1_high,")"),
+                 sd2_range = str_c("(",sd2_low,", ",sd2_high,")"),
+                 sd3_range = str_c("(",sd3_low,", ",sd3_high,")")) %>%
+  select(mean, "standard error" = se, median, mode, "standard deviation" = sd, variance, 
+         kurtosis, skewness, range, "minimum" = min, "maximum" = max, sum, 
+         "number of RATAs" = count, "1 standard deviation" = sd1_range, 
+         "% RATAs in 1 standard deviation" = sd1_pct, "2 standard deviations" = sd2_range, 
+         "% RATAs in 2 standard deviations" = sd2_pct, "3 standard deviations" = sd3_range, 
+         "% of RATAs in 3 standard deviations" = sd3_pct) %>%
+  gather(variable, value) %>% 
+  kable() %>% 
+  kable_styling(position="left")
+}
+```
+
+```{r }
+# function to add a column in each dataframe of passed observations to indicate the RATAs 
+# standard deviation. This will be used to color the histograms.
+# required function inputs:  
+# - df = dataframe
+# - dfstats = dataframe of statistical values for df (from getstats function)
+# output: dataframe modified to include standard deviations column
+addsd <- function(df, dfstats) {
+df %>% mutate(sd = factor(case_when(
+    Mean.Diff >= dfstats$sd1_low & Mean.Diff <= dfstats$sd1_high ~ "SD1",
+    Mean.Diff >= dfstats$sd2_low & Mean.Diff <= dfstats$sd2_high ~ "SD2",
+    Mean.Diff >= dfstats$sd3_low & Mean.Diff <= dfstats$sd3_high ~ "SD3",
+    TRUE ~ "OTHER"
+    ), levels = c("SD1","SD2","SD3","OTHER"))) %>% 
+    arrange(sd) -> df
+}
+```
+
+```{r }
+# function to plot Mean and Standard Deviations of Mean Difference
+# required function inputs:  
+# - df = dataframe
+# - dfstats = dataframe of statistical values for df (from getstats function)
+# - bins = # of bins for histogram
+# output: dataframe modified to include standard deviations column
+plotstats <- function(df, dfstats, bins) {
+  # arrange values in sd column in order for appearance in legend
+gplot <- ggplot(df, aes(x=Mean.Diff, fill = sd)) + 
+  geom_histogram(bins=bins, color="#3b3b3b", size = 0.5) + 
+  geom_vline(aes(xintercept=mean(Mean.Diff)), color="blue", linetype="solid", size=1)  +
+  xlab("Mean Difference") + 
+  ylab("Frequency") + 
+    theme_set(theme_custom()) +
+  scale_fill_manual(values=c("#7AC36A","#5A9BD4","#FAA75B","#F15A60"), 
+                    limits=c("SD1","SD2","SD3","OTHER")) +
+  labs(fill="Standard Deviations")
+
+}
+```
+
+```{r}
+# create function to plot distribution with boxplot and histogram
+# required function inputs:  
+# - df = filtered dataframe 
+# - var = variable used in plot
+# - bins = # of bins for histogram
+# - title - title for the plot
+# output: a box plot and histogram plot of supplied variable
+plotdist <- function(df,var,bins,title) {
+  var <- enquo(var)   # convert unquoted var to a quoted one
+  p1 <- ggplot(df, aes(x = "", y = !! var)) +    # !! required to unquote var
+    stat_boxplot(geom = "errorbar", width = 0.4) + 
+    geom_boxplot(outlier.colour = "#F15A60") +
+    coord_flip() + 
+    stat_summary(fun.y = mean, colour = "#9E67AB", geom = "point", shape = 18, size = 3) + 
+    labs(x = "", y = "") + 
+    theme_set(theme_custom()) + 
+    ggtitle(title)
+  
+ 
+  p2 <- ggplot(df, aes(x=Mean.Diff, fill = sd)) + 
+  geom_histogram(bins=bins, color="#3b3b3b", size = 0.5) + 
+  geom_vline(aes(xintercept=mean(Mean.Diff)), color="blue", linetype="solid", size=1)  +
+  xlab("Mean Difference") + 
+  ylab("Frequency") + 
+    theme_set(theme_custom()) +
+  scale_fill_manual(values=c("#7AC36A","#5A9BD4","#FAA75B","#F15A60"), 
+                    limits=c("SD1","SD2","SD3","OTHER")) +
+  labs(fill="Standard Deviations")
+  
+
+   ggarrange(p1,p2,heights = c(.75, 2), align = "v", ncol = 1, nrow = 2)
+}
+```
+
+
+
+**---------------------------------------------------------------------------------------------------------------**
+
+## Historical Test Results ## 
+Using the above filtered dataframes, we will determine the frequency of units Passing (meeting Relative Accuracy requirements), Passing with Alternative Performance Specification (meeting mean difference between CEMS and reference values), and Failing as well as determining the reporting frequency status (annually or semi-annually).
+
+The following criteria will be utilized to determine if a RATA passes and the frequency:
+
+* For SO2 and NOx ppm RATAs    
+    + if Relative Accuracy is <= `r ra_4qtr `%, then RATA = PASS with a frequency of 4QT
+    + if Relative Accuracy is > `r ra_4qtr `% and if the difference between the CEMS and reference value is within +/- `r so2nox_4qtr_diff ` ppm, then RATA = PASSAPS with a frequency of 4QTR
+    + if Relative Accuracy is > `r ra_4qtr `% and <= `r ra_2qtr `%, then RATA = PASS with a frequency of 2QTR
+    + if Relative Accuracy is > `r ra_2qtr `% and if the difference between the CEMS and reference value is within +/- `r so2nox_2qtr_diff ` ppm, then RATA = PASSAPS with a frequency of 2QTR  
+
+* For NOx rate RATAs
+    + if Relative Accuracy is <= `r ra_4qtr `%, then RATA = PASS with a frequency of 4QTR
+    + if Relative Accuracy is > `r ra_4qtr `% and if the difference between the CEMS and reference value is within +/- `r noxr_4qtr_diff ` lb/mmBtu, then RATA = PASSAPS  with a frequency of 4QTR
+    + if Relative Accuracy is > `r ra_4qtr `% and <= `r ra_2qtr `%, then RATA = PASS with a frequency of 2QTR
+    + if Relative Accuracy is > `r ra_2qtr `% and if the difference between the CEMS and reference value is within +/- `r noxr_2qtr_diff ` lb/mmBtu, then RATA = PASSAPS with a frequency of 2QTR  
+
+* For CO2 or O2 % RATAs
+    + if Relative Accuracy is <= `r ra_4qtr `%, then RATA = PASS with a frequency of 4QTR
+    + if Relative Accuracy is > `r ra_4qtr `% and if the difference between the CEMS and reference value is within +/- `r co2o2_4qtr_diff `%, then RATA = PASSAPS with a frequency of 4QTR
+    + if Relative Accuracy is > `r ra_4qtr `% and <= `r ra_2qtr `%, then RATA = PASS with a frequency of 2QTR
+    + if Relative Accuracy is > `r ra_2qtr `% and if the difference between the CEMS and reference value is within +/- `r co2o2_2qtr_diff `%, then RATA = PASSAPS with a frequency of 2QTR  
+
+* For moisture RATAs
+    + if Relative Accuracy is <= `r ra_4qtr `%, then RATA = PASS with a frequency of 4QTR
+    + if Relative Accuracy is > `r ra_4qtr `% and if the difference between the CEMS and reference value is within +/- `r h2o_4qtr_diff `%, then RATA = PASSAPS with a frequency of 4QTR
+    + if Relative Accuracy is > `r ra_4qtr `% and <= `r ra_2qtr `%, then RATA = PASS with a frequency of 2QTR
+    + if Relative Accuracy is > `r ra_2qtr `% and if the difference between the CEMS and reference value is within +/- `r h2o_4qtr_diff `%, then RATA = PASSAPS with a frequency of 2QTR  
+
+
+```{r }
+# for each monitoring system, call the testresults function, supplying the filtered dataframe
+# and the variables for relative accuracy and mean difference values
+# function call: testresults(df,ra_4qtr,ra_2qtr,diff_4qtr,diff_2qtr)
+so2nox_results <- testresults(so2nox_filtered, ra_4qtr, ra_2qtr, so2nox_4qtr_diff, so2nox_2qtr_diff)
+noxr_results <- testresults(noxrrata_filtered, ra_4qtr, ra_2qtr, noxr_4qtr_diff, noxr_2qtr_diff)
+co2o2_results <- testresults(co2o2, ra_4qtr, ra_2qtr, co2o2_4qtr_diff, co2o2_2qtr_diff)
+h2o_results <- testresults(h2omh2o, ra_4qtr, ra_2qtr, h2o_4qtr_diff, h2o_2qtr_diff)
+```
+
+
+## Statistical Evaluation ## 
+**Evaluation of the current Alternative Performance Specifications.**   
+
+For each of the RATA tests:  
+
+* exclude all observations that failed their tests  
+* plot the frequency distribution of the mean difference  
+* perform a basic statistical evaluation of the RATA mean difference listing the mean, standard error, median, mode, standard deviation, sample variance, kurtosis, skewness, range, minimum, maximum, sum, count, largest (x), smallest (X), confidence level, (X) percentage  
+* plot the mean, standard deviation (1 sigma, 2 sigma, 3 sigma)    
+
+
+### SO2 and NOx (ppm) ###
+**Mean Difference for RATAs that passed**
+```{r}
+# keep only those observations that passed
+so2nox_passed <- so2nox_results %>% filter(testresult !="FAILED") 
+```
+
+
+**Statistics for SO2 & NOx Mean Difference of RATAs that passed**
+```{r warning=FALSE}
+# statistical evaluation of all that passed
+# function call: getstats(x)
+so2nox_stats <- getstats(so2nox_passed$Mean.Diff) 
+displaystats(so2nox_stats)
+```
+
+```{r }
+# call addsd function to add column for standard deviation values for each RATA
+# function call: addsd(df, dfstats)
+so2nox_passed <- addsd(so2nox_passed, so2nox_stats)
+```
+
+```{r out.width='100%'}
+# function call: plotdist(df, var, bins, title)
+plotdist(so2nox_passed, Mean.Diff, 25, "SO2 & NOx ppm RATAs Mean Difference")
+```
+
+
+### NOx Rate ###
+**Mean Difference for RATAs that passed**
+```{r}
+# keep only those observations that passed
+noxr_passed <- noxr_results %>% filter(testresult !="FAILED")
+```
+
+
+**Statistics for NOx Rate Mean Difference of RATAs that passed**
+```{r warning=FALSE}
+# get statistics for NOx rate RATAs
+# function call: getstats(x)
+noxr_stats <- getstats(noxr_passed$Mean.Diff) 
+displaystats(noxr_stats)
+```
+
+```{r }
+# call addsd function to add column for standard deviation values for each RATA
+# function call: addsd(df, dfstats)
+noxr_passed <- addsd(noxr_passed, noxr_stats)
+```
+
+```{r out.width='100%'}
+# plot frequency distribution of mean difference
+# function call: plotdist(df, var, bins, title)
+plotdist(noxr_passed, Mean.Diff, 25, "NOx Rate RATAs Mean Difference")
+```
+
+### CO2 and O2 (%) ###
+**Mean Difference for RATAs that passed**
+```{r}
+# keep only those observations that passed
+co2o2_passed <- co2o2_results %>% filter(testresult !="FAILED")
+```
+
+
+**Statistics for CO2 & O2 Mean Difference of RATAs that passed**
+```{r warning=FALSE}
+# function call: getstats(x)
+co2o2_stats <- getstats(co2o2_passed$Mean.Diff) 
+displaystats(co2o2_stats)
+```
+
+```{r }
+# call addsd function to add column for standard deviation values for each RATA
+# function call: addsd(df, dfstats)
+co2o2_passed <- addsd(co2o2_passed, co2o2_stats)
+```
+
+```{r out.width='100%'}
+# plot frequency distribution of mean difference
+# function call: plotdist(df, var, bins, title)
+plotdist(co2o2_passed, Mean.Diff, 25, "CO2 & O2 % RATAs Mean Difference")
+```
+
+### Moisture RATA (%H2O) ###
+```{r}
+# keep only those observations that passed
+h2o_passed <- h2o_results %>% filter(testresult !="FAILED")
+```
+
+
+**Statistics for Moisture Mean Difference of RATAs that passed**
+```{r warning=FALSE}
+# function call: getstats(x)
+h2o_stats <- getstats(h2o_passed$Mean.Diff) 
+displaystats(h2o_stats)
+```
+
+```{r }
+# call addsd function to add column for standard deviation values for each RATA
+h2o_passed <- addsd(h2o_passed, h2o_stats)
+```
+
+```{r out.width='100%'}
+# plot frequency distribution of mean difference
+# function call: plotdist(df, var, bins, title)
+plotdist(h2o_passed, Mean.Diff, 20, "Moisture (H2O) RATAs Mean Difference")
+```
+
+## Determination of proposed annual and semiannual APS ##
+The proposed semi-annual APS will be the resulting greatest absolute value of 2 standard deviations from the mean rounded to the nearest whole value for SO2 and NOx ppm, to the nearest thousandths place for NOx rate, and nearest tenths place for CO2 or O2 percent, and moisture (%H2O).
+
+```{r }
+# get absolute value of 2 standard deviations from the mean for semi-annual frequency
+so2nox_sa_aps <- round2(pmax(abs(so2nox_stats$sd2_low),abs(so2nox_stats$sd2_high)), 0)
+noxr_sa_aps <- round2(pmax(abs(noxr_stats$sd2_low),abs(noxr_stats$sd2_high)),3)
+co2o2_sa_aps <- round2(pmax(abs(co2o2_stats$sd2_low),abs(co2o2_stats$sd2_high)),1)
+h2o_sa_aps <- round2(pmax(abs(h2o_stats$sd2_low),abs(h2o_stats$sd2_high)),1)
+
+```
+
+The proposed annual APS will be `r annual_aps ` of the proposed semi-annual APS rounded to the nearest whole value for SO2 and NOx ppm, to the nearest thousandths place for NOx rate, and nearest tenths place for CO2 or O2 percent, and moisture (% H2O).
+```{r }
+# get annaul APS values (25% of the proposed semi-annual APS value)
+so2nox_a_aps <- round2(annual_aps*so2nox_sa_aps, 0) 
+noxr_a_aps <- round2(annual_aps*noxr_sa_aps, 3)
+co2o2_a_aps <- round2(annual_aps*co2o2_sa_aps, 1)
+h2o_a_aps <- round2(annual_aps*h2o_sa_aps, 1)
+```
+
+```{r }
+# create dataframe of test results
+proposedaps <- data.frame("Annual" = c(so2nox_a_aps, noxr_a_aps, co2o2_a_aps, h2o_a_aps), 
+                          "Semiannual" = c(so2nox_sa_aps, noxr_sa_aps, co2o2_sa_aps, h2o_sa_aps), 
+                          row.names = c("SO2 NOx", "NOx Rate", "CO2 or O2", "Moisture"))
+
+proposedaps %>% 
+  kable() %>% 
+  kable_styling(bootstrap_options = c("bordered","striped", "hover", "condensed", "responsive"), full_width = FALSE, position="left") %>% 
+  row_spec(row=0, extra_css = "background-color: #2E8540; color: #fff;") %>%
+  column_spec(column = 1, bold = TRUE) %>%
+  add_header_above(c("Proposed APS" = 3), extra_css = "background-color: #0071BC; color: #fff;") #%
+```
+
+## Determination of pass and frequency rates with proposed APS ##  
+The proposed alternate performance specifications will be evaluated on the historic RATA data to determine the overall pass/fail rate and frequency (annual/semi-annual) qualification.
+```{r }
+# create variables for the different proposed measurements
+# variable values are proposed APS values calculated above
+so2nox_prop_4qtr_diff <- so2nox_a_aps  
+so2nox_prop_2qtr_diff <- so2nox_sa_aps  
+noxr_prop_4qtr_diff <- noxr_a_aps  
+noxr_prop_2qtr_diff <- noxr_sa_aps  
+co2o2_prop_4qtr_diff <- co2o2_a_aps  
+co2o2_prop_2qtr_diff <- co2o2_sa_aps  
+h2o_prop_4qtr_diff <- h2o_a_aps  
+h2o_prop_2qtr_diff <- h2o_sa_aps  
+```
+
+
+```{r }
+## call function for each of the dataframes (excluding failed tests) with appropriate variables for relative accuracy
+# and mean difference between CEMS and reference value
+# function call: testresults(df,ra_4qtr,ra_2qtr,diff_4qtr,diff_2qtr)
+so2nox_prop_results <- testresults(so2nox_passed, ra_4qtr, ra_2qtr, 
+                                   so2nox_prop_4qtr_diff, so2nox_prop_2qtr_diff)
+noxr_prop_results <- testresults(noxr_passed, ra_4qtr, ra_2qtr, 
+                                 noxr_prop_4qtr_diff, noxr_prop_2qtr_diff)
+co2o2_prop_results <- testresults(co2o2_passed, ra_4qtr, ra_2qtr, 
+                                  co2o2_prop_4qtr_diff, co2o2_prop_2qtr_diff)
+h2o_prop_results <- testresults(h2o_passed, ra_4qtr, ra_2qtr, 
+                                h2o_prop_4qtr_diff, h2o_prop_2qtr_diff)
+```
+
+**Results**
+```{r }
+# Combine current and proposed dataframes
+so2nox_comb_results <-add_column(so2nox_passed, propresults=so2nox_prop_results$testresult)
+noxr_comb_results <-add_column(noxr_passed, propresults=noxr_prop_results$testresult)
+co2o2_comb_results <-add_column(co2o2_passed, propresults=co2o2_prop_results$testresult)
+h2o_comb_results <-add_column(h2o_passed, propresults=h2o_prop_results$testresult)
+```
+
+```{r }
+# function to create a data table to display results
+# required function inputs:  
+# - df = dataframe
+# output: dataframe of results of current and proposed APS
+displayresults <- function(df) {
+  data.table(
+    numratas = df %>% nrow(),
+    numpass4 = df %>% filter(testresult=="PASS_4QTRS") %>% nrow(),
+    numpassaps4 = df %>% filter(testresult=="PASSAPS_4QTRS") %>% nrow(),
+    numpass2 = df %>% filter(testresult=="PASS_2QTRS") %>% nrow(),
+    numpassaps2 = df %>% filter(testresult=="PASSAPS_2QTRS") %>% nrow(),
+    numproppass4 = df %>% filter(propresults=="PASS_4QTRS") %>% nrow(),
+    numproppassaps4 = df %>% filter(propresults=="PASSAPS_4QTRS") %>% nrow(),
+    numproppass2 = df %>% filter(propresults=="PASS_2QTRS") %>% nrow(),
+    numproppassaps2 = df %>% filter(propresults=="PASSAPS_2QTRS") %>% nrow(),
+    numpass = df %>% filter(!propresults=="FAILED") %>% nrow(),
+    percpass = round2((df %>% filter(!propresults=="FAILED") %>% nrow())/(df %>% nrow())*100,2),
+    numpasstofail = (df %>% filter(testresult !="FAILED") %>% filter(propresults=="FAILED") %>% nrow()),
+    num4to2 = (df %>% filter(RATA.Frequency=="2QTRS" | RATA.Frequency=="4QTRS") %>% 
+                 filter(testresult=="PASS_4QTRS" | testresult=="PASSAPS_4QTRS") %>%
+                 filter(propresults=="PASS_2QTRS" | propresults=="PASSAPS_2QTRS") %>% nrow()),
+    perc4to2 = round2(((df %>% filter(RATA.Frequency=="2QTRS" | RATA.Frequency=="4QTRS") %>%
+                          filter(testresult=="PASS_4QTRS" | testresult=="PASSAPS_4QTRS") %>%
+                          filter(propresults=="PASS_2QTRS" | propresults=="PASSAPS_2QTRS") %>% 
+                                nrow()))/(df %>% nrow())*100,2)
+    ) 
+  
+} 
+```
+
+
+```{r }
+# results of all tests
+# call displayresults function and then add a test column to denote the test for the data
+so2nox_comparison <- so2nox_comb_results %>% 
+  displayresults() %>% 
+  mutate(test="so2nox") %>% 
+  select(test, everything())
+noxr_comparison <- noxr_comb_results %>% 
+  displayresults() %>% 
+  mutate(test="noxr") %>% 
+  select(test, everything())
+co2o2_comparison <- co2o2_comb_results %>% 
+  displayresults() %>% 
+  mutate(test="co2o2") %>% 
+  select(test, everything())
+h2o_comparison <- h2o_comb_results %>% 
+  displayresults() %>% 
+  mutate(test="h2o") %>% 
+  select(test, everything())
+```
+
+```{r }
+# combine above into one dataframe
+results_prop_aps <- do.call("rbind", list(so2nox_comparison, noxr_comparison, 
+                                          co2o2_comparison, h2o_comparison))
+```
+
+```{r }
+# create table of results
+kable(results_prop_aps, col.names = c("Test", "# RATAS", "# Pass 4QTRS", 
+                                      "# Pass APS 4QTRS", "# Pass 2QTRS", "# Pass APS 2QTRS",
+                                      "# Pass 4QTRS", "# Pass APS 4QTRS", "# Pass 2QTRS", 
+                                      "# Pass APS 2QTRS", "# Passed", "% Passed", "# Change from Pass to Fail",
+                                      "# Change from 4QTR to 2QTR", "% Change from 4QTR to 2QTR")) %>% 
+  kable_styling(bootstrap_options = c("bordered","striped", "hover", "condensed", "responsive"), full_width=TRUE, position="left", font_size = 12) %>% 
+  row_spec(row = 0, extra_css = "background-color: #2E8540; color: #fff;") %>%
+  column_spec(column = 1, bold = TRUE) %>%
+  column_spec(column = 2, extra_css = "border-right:2px solid darkgrey;") %>%
+  column_spec(column = 7, extra_css = "border-left:2px solid darkgrey;") %>%
+  column_spec(column = 13, extra_css = "border-left:2px solid darkgrey;") %>%
+  add_header_above(c(" "=2, "Current Standards"=4, "Proposed Standards"=6, "Change"=3), extra_css = "background-color: #0071BC; color: #fff;") #%
+```
+
+
+
